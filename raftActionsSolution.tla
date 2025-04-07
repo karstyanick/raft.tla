@@ -329,6 +329,39 @@ DuplicateMessage(m) ==
 DropMessage(m) ==
     /\ Discard(m)
     /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
+    
+\* If you only have one switch, name it SwitchBroadcast.
+\* If you have a set Switch, then SwitchBroadcast(s) with s \in Switch.
+SwitchBroadcast(entryValue) ==
+    /\ \* Possibly a precondition: The switch wants to send something
+       \* (like if switchQueue is non-empty, or if switchTerm < some limit, etc.)
+    
+    \* 1. Construct a message record or entry
+    LET entry == [ term  |-> switchTerm,
+                   value |-> entryValue ]
+    IN
+       /\ \* 2. Optionally store it in switchLog (or do something else)
+          switchLog' = Append(switchLog, entry)
+          
+       /\ \* 3. “Broadcast” to all servers in one atomic step
+          \A i \in Server :
+             Send([
+               mtype   |-> "SwitchRequest",
+               mentry  |-> entry,
+               msource |-> Switch,
+               mdest   |-> i
+             ], 
+             Switch, i)
+       
+       \* 4. Possibly increment switchTerm or track some metric
+       /\ switchTerm' = switchTerm + 1
+       \* If the aggregator only updates local state, keep the other switch variables unchanged, e.g.:
+       /\ UNCHANGED switchQueue
+       
+       \* 5. Leave all server variables unchanged
+       /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
+
+\* A similar pattern if you want the switch to do other special actions...
 
 =============================================================================
 \* Created by Ovidiu-Cristian Marcu

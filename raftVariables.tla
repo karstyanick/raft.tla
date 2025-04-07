@@ -64,8 +64,14 @@ VARIABLE nextIndex
 VARIABLE matchIndex
 leaderVars == <<nextIndex, matchIndex>>
 
+\* Suppose the switch can store some entries or has its own notion of a “term”
+VARIABLE switchLog
+
+\* Group them in a tuple for stuttering convenience
+switchVars == << switchLog >>
+
 \* All variables; used for stuttering (asserting state hasn't changed).
-vars == <<messages, serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
+vars == <<messages, serverVars, candidateVars, leaderVars, logVars, instrumentationVars, switchVars>>
 
 =============================================================================
 \* Created by Ovidiu-Cristian Marcu

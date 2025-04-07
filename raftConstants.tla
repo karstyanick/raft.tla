@@ -5,6 +5,9 @@ EXTENDS Naturals, FiniteSets, Sequences, TLC
 \* The set of server IDs
 CONSTANTS Server
 
+\* Denotes the single switch component
+CONSTANT Switch
+
 \* The set of client requests that can go into the log
 CONSTANTS Value
 
