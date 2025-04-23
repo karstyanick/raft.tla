@@ -143,6 +143,18 @@ ClientRequest(i, v) ==
               ELSE entryCommitStats
     /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, commitIndex, leaderCount>>
 
+
+ClientRequestSwitch(v) ==
+    /\ maxc < MaxClientRequests 
+    /\ LET entryExists == \E j \in DOMAIN switchLog : switchLog[j].value = v
+           newLog == IF entryExists THEN switchLog ELSE Append(switchLog, v)
+           newEntryIndex == Len(log) + 1
+       IN
+        /\ switchLog' = newLog
+        /\ maxc' = IF entryExists THEN maxc ELSE maxc + 1
+        
+    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, commitIndex, leaderCount>>
+
 \* Modified. Leader i sends j an AppendEntries request containing exactly 1 entry. It was up to 1 entry.
 \* While implementations may want to send more than 1 at a time, this spec uses
 \* just 1 because it minimizes atomic regions without loss of generality.
@@ -330,38 +342,41 @@ DropMessage(m) ==
     /\ Discard(m)
     /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
     
-\* If you only have one switch, name it SwitchBroadcast.
-\* If you have a set Switch, then SwitchBroadcast(s) with s \in Switch.
-SwitchBroadcast(entryValue) ==
-    /\ \* Possibly a precondition: The switch wants to send something
-       \* (like if switchQueue is non-empty, or if switchTerm < some limit, etc.)
-    
+SwitchBroadcast ==
     \* 1. Construct a message record or entry
-    LET entry == [ term  |-> switchTerm,
-                   value |-> entryValue ]
-    IN
-       /\ \* 2. Optionally store it in switchLog (or do something else)
-          switchLog' = Append(switchLog, entry)
-          
-       /\ \* 3. “Broadcast” to all servers in one atomic step
-          \A i \in Server :
+    LET entry == switchLog[Len(switchLog)]
+
+    IN /\ \A i \in Server :
              Send([
-               mtype   |-> "SwitchRequest",
+               mtype   |-> SwitchRequest,
                mentry  |-> entry,
                msource |-> Switch,
                mdest   |-> i
-             ], 
-             Switch, i)
-       
-       \* 4. Possibly increment switchTerm or track some metric
-       /\ switchTerm' = switchTerm + 1
-       \* If the aggregator only updates local state, keep the other switch variables unchanged, e.g.:
-       /\ UNCHANGED switchQueue
-       
+             ]) \* 3. “Broadcast” to all servers in one atomic step
+             
        \* 5. Leave all server variables unchanged
        /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
+       
+HandleSwitchBroadcastFollower(i, m) == 
+    /\ state[i] = Follower \* In case of message received by follower
+    /\ messageStore[i]' = Append(messageStore[i], m.value) \* Add message to temporary message store
+    /\ UNCHANGED <<candidateVars, leaderVars, logVars, instrumentationVars>>
 
-\* A similar pattern if you want the switch to do other special actions...
-
+HandleSwitchBroadcastLeader(i, v) ==
+    /\ state[i] = Leader
+    /\ LET entryTerm == currentTerm[i]
+           entry == [term |-> entryTerm, value |-> v]
+           entryExists == \E j \in DOMAIN log[i] : log[i][j].value = v /\ log[i][j].term = entryTerm
+           newLog == IF entryExists THEN log[i] ELSE Append(log[i], entry)
+           newEntryIndex == Len(log[i]) + 1
+           newEntryKey == <<newEntryIndex, entryTerm>>
+       IN
+        /\ log' = [log EXCEPT ![i] = newLog]
+        /\ maxc' = IF entryExists THEN maxc ELSE maxc + 1
+        /\ entryCommitStats' =
+              IF ~entryExists /\ newEntryIndex > 0 \* Only add stats for truly new entries
+              THEN entryCommitStats @@ (newEntryKey :> [ sentCount |-> 0, ackCount |-> 0, committed |-> FALSE ])
+              ELSE entryCommitStats
+    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, commitIndex, leaderCount>>
 =============================================================================
 \* Created by Ovidiu-Cristian Marcu

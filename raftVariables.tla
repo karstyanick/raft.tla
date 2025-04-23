@@ -32,7 +32,9 @@ VARIABLE state
 \* The candidate the server voted for in its current term, or
 \* Nil if it hasn't voted for any.
 VARIABLE votedFor
-serverVars == <<currentTerm, state, votedFor>>
+\* The servers unordered client request message store
+VARIABLE messageStore
+serverVars == <<currentTerm, state, votedFor, messageStore>>
 
 \* A Sequence of log entries. The index into this sequence is the index of the
 \* log entry. Unfortunately, the Sequence module defines Head(s) as the entry
@@ -64,10 +66,8 @@ VARIABLE nextIndex
 VARIABLE matchIndex
 leaderVars == <<nextIndex, matchIndex>>
 
-\* Suppose the switch can store some entries or has its own notion of a “term”
+\* A log that keeps track of which messages where already broadcasted
 VARIABLE switchLog
-
-\* Group them in a tuple for stuttering convenience
 switchVars == << switchLog >>
 
 \* All variables; used for stuttering (asserting state hasn't changed).

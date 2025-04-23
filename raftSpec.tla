@@ -26,6 +26,12 @@ Receive(m) ==
        \/ /\ m.mtype = AppendEntriesResponse
           /\ \/ DropStaleResponse(i, j, m)
              \/ HandleAppendEntriesResponse(i, j, m)
+       \/ /\ m.mtype = SwitchRequest 
+          /\ state[i] = Follower
+          /\ HandleSwitchBroadcastFollower(i, m)
+       \/ /\ m.mtype = SwitchRequest 
+          /\ state[i] = Leader
+          /\ HandleSwitchBroadcastLeader(i, m)
 
 \* Defines how the variables may transition.
 Next == 
@@ -49,6 +55,22 @@ MyNext ==
 \*           \/ \E i,j \in Server : i /= j /\ RequestVote(i, j)
 \*           \/ \E i \in Server : BecomeLeader(i)
            \/ \E i \in Server, v \in Value : state[i] = Leader /\ ClientRequest(i, v)
+           \/ \E i \in Server : AdvanceCommitIndex(i)
+           \/ \E i,j \in Server : i /= j /\ AppendEntries(i, j)
+           \/ \E m \in {msg \in ValidMessage(messages) : \* to visualize possible messages
+                    msg.mtype \in {AppendEntriesRequest, AppendEntriesResponse}} : Receive(m)
+\*           \/ \E m \in {msg \in ValidMessage(messages) : 
+\*                    msg.mtype \in {AppendEntriesRequest}} : DuplicateMessage(m)
+\*           \/ \E m \in {msg \in ValidMessage(messages) : 
+\*                    msg.mtype \in {RequestVoteRequest}} : DropMessage(m)
+
+MyNextWithSwitch == 
+\*           \/ \E i \in Server : Timeout(i)
+\*           \/ \E i \in Server : Restart(i)
+\*           \/ \E i,j \in Server : i /= j /\ RequestVote(i, j)
+\*           \/ \E i \in Server : BecomeLeader(i)
+           \/ \E v \in Value : ClientRequestSwitch(v)
+           \/ SwitchBroadcast
            \/ \E i \in Server : AdvanceCommitIndex(i)
            \/ \E i,j \in Server : i /= j /\ AppendEntries(i, j)
            \/ \E m \in {msg \in ValidMessage(messages) : \* to visualize possible messages
