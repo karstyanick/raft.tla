@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<projectDescription>
+	<name>raftVariables</name>
+	<comment></comment>
+	<projects>
+	</projects>
+	<buildSpec>
+		<buildCommand>
+			<name>toolbox.builder.TLAParserBuilder</name>
+			<arguments>
+			</arguments>
+		</buildCommand>
+	</buildSpec>
+	<natures>
+		<nature>toolbox.natures.TLANature</nature>
+	</natures>
+	<linkedResources>
+		<link>
+			<name>raftConstants.tla</name>
+			<type>1</type>
+			<location>/home/yanick/Documents/UniProjects/raft.tla/raftConstants.tla</location>
+		</link>
+		<link>
+			<name>raftVariables.tla</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/raftVariables.tla</locationURI>
+		</link>
+	</linkedResources>
+</projectDescription>
