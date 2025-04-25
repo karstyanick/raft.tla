@@ -69,7 +69,7 @@ MyNextWithSwitch ==
 \*           \/ \E i \in Server : Restart(i)
 \*           \/ \E i,j \in Server : i /= j /\ RequestVote(i, j)
 \*           \/ \E i \in Server : BecomeLeader(i)
-           \/ \E v \in Value : ClientRequestSwitch(v)
+             \/ \E v \in Value, i \in Server : state[i] = Leader /\ ClientRequestSwitch(v, i)
 \*           \/ \A i \in Server : SwitchBroadcast(i)
 \*           \/ \E i \in Server : AdvanceCommitIndex(i)
 \*           \/ \E i,j \in Server : i /= j /\ AppendEntries(i, j)

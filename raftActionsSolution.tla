@@ -144,9 +144,9 @@ ClientRequest(i, v) ==
     /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, commitIndex, leaderCount>>
 
 
-ClientRequestSwitch(v) ==
+ClientRequestSwitch(v, i) ==
     /\ maxc < MaxClientRequests 
-    /\ LET entry == [value |-> v, payload |-> "data"]
+    /\ LET entry == [term |-> currentTerm[i], value |-> v, payload |-> "data"]
            entryExists == \E j \in DOMAIN switchLog : switchLog[j].value = v
            newLog == IF entryExists THEN switchLog ELSE Append(switchLog, entry)
        IN
