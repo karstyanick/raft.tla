@@ -67,8 +67,9 @@ VARIABLE matchIndex
 leaderVars == <<nextIndex, matchIndex>>
 
 \* A log that keeps track of which messages where already broadcasted
+VARIABLE switchNextIndex
 VARIABLE switchLog
-switchVars == << switchLog >>
+switchVars == << switchLog, switchNextIndex>>
 
 \* All variables; used for stuttering (asserting state hasn't changed).
 vars == <<messages, serverVars, candidateVars, leaderVars, logVars, instrumentationVars, switchVars>>

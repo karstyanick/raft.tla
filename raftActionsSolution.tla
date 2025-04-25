@@ -146,9 +146,9 @@ ClientRequest(i, v) ==
 
 ClientRequestSwitch(v) ==
     /\ maxc < MaxClientRequests 
-    /\ LET entryExists == \E j \in DOMAIN switchLog : switchLog[j].value = v
-           newLog == IF entryExists THEN switchLog ELSE Append(switchLog, v)
-           newEntryIndex == Len(log) + 1
+    /\ LET entry == [value |-> v, payload |-> "data"]
+           entryExists == \E j \in DOMAIN switchLog : switchLog[j].value = v
+           newLog == IF entryExists THEN switchLog ELSE Append(switchLog, entry)
        IN
         /\ switchLog' = newLog
         /\ maxc' = IF entryExists THEN maxc ELSE maxc + 1
@@ -267,6 +267,7 @@ HandleAppendEntriesRequest(i, j, m) ==
                        /\ Len(log[i]) = m.mprevLogIndex
                        /\ log' = [log EXCEPT ![i] =
                                       Append(log[i], m.mentries[1])]
+                       /\ messageStore[i]' = Append(messageStore[i], m.value) \* Add message to temporary message store
                        /\ UNCHANGED <<serverVars, commitIndex, messages>>
        /\ UNCHANGED <<candidateVars, leaderVars, instrumentationVars>> \* entryCommitStats unchanged on followers
 
@@ -342,12 +343,11 @@ DropMessage(m) ==
     /\ Discard(m)
     /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
     
-SwitchBroadcast ==
+SwitchBroadcast(i) ==
     \* 1. Construct a message record or entry
-    LET entry == switchLog[Len(switchLog)]
-
-    IN /\ \A i \in Server :
-             Send([
+    LET entry == switchLog[switchNextIndex[i]]
+    IN
+       /\ Send([
                mtype   |-> SwitchRequest,
                mentry  |-> entry,
                msource |-> Switch,
@@ -360,6 +360,7 @@ SwitchBroadcast ==
 HandleSwitchBroadcastFollower(i, m) == 
     /\ state[i] = Follower \* In case of message received by follower
     /\ messageStore[i]' = Append(messageStore[i], m.value) \* Add message to temporary message store
+    /\ switchNextIndex[i]' = switchNextIndex[i] + 1
     /\ UNCHANGED <<candidateVars, leaderVars, logVars, instrumentationVars>>
 
 HandleSwitchBroadcastLeader(i, v) ==
