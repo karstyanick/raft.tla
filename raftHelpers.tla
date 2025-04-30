@@ -73,21 +73,5 @@ MyConstraint == (\A i \in Server: currentTerm[i] <= MaxTerm /\ Len(log[i]) <= Ma
 
 Symmetry == Permutations(Server)
 
-\* new bag of messages with one more m in it. the following from orig spec necessary for Drop
-\*WithMessage(m, msgs) ==
-\*    IF m \in DOMAIN msgs THEN
-\*        [msgs EXCEPT ![m] = msgs[m] + 1]
-\*    ELSE
-\*        msgs @@ (m :> 1)
-
-\* Helper for Discard and Reply. Given a message m and bag of messages, return
-\* a new bag of messages with one less m in it.
-\*WithoutMessage(m, msgs) ==
-\*    IF m \in DOMAIN msgs THEN
-\*        IF msgs[m] <= 1 THEN [i \in DOMAIN msgs \ {m} |-> msgs[i]]
-\*        ELSE [msgs EXCEPT ![m] = msgs[m] - 1]
-\*    ELSE
-\*        msgs
-
 =============================================================================
 \* Created by Ovidiu-Cristian Marcu

@@ -15,17 +15,10 @@ Receive(m) ==
         j == m.msource
     IN \* Any RPC with a newer term causes the recipient to advance
        \* its term first. Responses with stale terms are ignored.
-       \/ UpdateTerm(i, j, m)
-       \/ /\ m.mtype = RequestVoteRequest
-          /\ HandleRequestVoteRequest(i, j, m)
-       \/ /\ m.mtype = RequestVoteResponse
-          /\ \/ DropStaleResponse(i, j, m)
-             \/ HandleRequestVoteResponse(i, j, m)
        \/ /\ m.mtype = AppendEntriesRequest
           /\ HandleAppendEntriesRequest(i, j, m)
        \/ /\ m.mtype = AppendEntriesResponse
-          /\ \/ DropStaleResponse(i, j, m)
-             \/ HandleAppendEntriesResponse(i, j, m)
+          /\ HandleAppendEntriesResponse(i, j, m)
        \/ /\ m.mtype = SwitchRequest 
           /\ state[i] = Follower
           /\ HandleSwitchBroadcastFollower(i, m)
@@ -33,59 +26,21 @@ Receive(m) ==
           /\ state[i] = Leader
           /\ HandleSwitchBroadcastLeader(i, m)
 
-\* Defines how the variables may transition.
-Next == 
-           \/ \E i \in Server : Timeout(i)
-\*           \/ \E i \in Server : Restart(i)
-           \/ \E i,j \in Server : i /= j /\ RequestVote(i, j)
-           \/ \E i \in Server : BecomeLeader(i)
-           \/ \E i \in Server, v \in Value : state[i] = Leader /\ ClientRequest(i, v)
-           \/ \E i \in Server : AdvanceCommitIndex(i)
-           \/ \E i,j \in Server : i /= j /\ AppendEntries(i, j)
-           \/ \E m \in {msg \in ValidMessage(messages) : \* to visualize possible messages
-                    msg.mtype \in {RequestVoteRequest, RequestVoteResponse, AppendEntriesRequest, AppendEntriesResponse}} : Receive(m)
-\*           \/ \E m \in {msg \in ValidMessage(messages) : 
-\*                    msg.mtype \in {AppendEntriesRequest}} : DuplicateMessage(m)
-\*           \/ \E m \in {msg \in ValidMessage(messages) : 
-\*                    msg.mtype \in {RequestVoteRequest}} : DropMessage(m)
-
-MyNext == 
-\*           \/ \E i \in Server : Timeout(i)
-\*           \/ \E i \in Server : Restart(i)
-\*           \/ \E i,j \in Server : i /= j /\ RequestVote(i, j)
-\*           \/ \E i \in Server : BecomeLeader(i)
-           \/ \E i \in Server, v \in Value : state[i] = Leader /\ ClientRequest(i, v)
-           \/ \E i \in Server : AdvanceCommitIndex(i)
-           \/ \E i,j \in Server : i /= j /\ AppendEntries(i, j)
-           \/ \E m \in {msg \in ValidMessage(messages) : \* to visualize possible messages
-                    msg.mtype \in {AppendEntriesRequest, AppendEntriesResponse}} : Receive(m)
-\*           \/ \E m \in {msg \in ValidMessage(messages) : 
-\*                    msg.mtype \in {AppendEntriesRequest}} : DuplicateMessage(m)
-\*           \/ \E m \in {msg \in ValidMessage(messages) : 
-\*                    msg.mtype \in {RequestVoteRequest}} : DropMessage(m)
-
 MyNextWithSwitch == 
-\*           \/ \E i \in Server : Timeout(i)
-\*           \/ \E i \in Server : Restart(i)
-\*           \/ \E i,j \in Server : i /= j /\ RequestVote(i, j)
-\*           \/ \E i \in Server : BecomeLeader(i)
              \/ \E v \in Value, i \in Server : state[i] = Leader /\ ClientRequestSwitch(v, i)
-\*           \/ \A i \in Server : SwitchBroadcast(i)
-\*           \/ \E i \in Server : AdvanceCommitIndex(i)
-\*           \/ \E i,j \in Server : i /= j /\ AppendEntries(i, j)
-\*           \/ \E m \in {msg \in ValidMessage(messages) : \* to visualize possible messages
-\*                    msg.mtype \in {AppendEntriesRequest, AppendEntriesResponse}} : Receive(m)
-\*           \/ \E m \in {msg \in ValidMessage(messages) : 
-\*                    msg.mtype \in {AppendEntriesRequest}} : DuplicateMessage(m)
-\*           \/ \E m \in {msg \in ValidMessage(messages) : 
-\*                    msg.mtype \in {RequestVoteRequest}} : DropMessage(m)
+             \/ \E i \in Server : SwitchBroadcast(i)
+             \/ \E m \in {msg \in ValidMessage(messages) :
+                 msg.mtype \in {SwitchRequest}} : Receive(m)
+\*             \/ \E i \in Server : AdvanceCommitIndex(i)
+\*             \/ \E i,j \in Server : i /= j /\ AppendEntries(i, j)
+\*             \/ \E m \in {msg \in ValidMessage(messages) : \* to visualize possible messages
+\*                 msg.mtype \in {AppendEntriesRequest, AppendEntriesResponse}} : Receive(m)
 
 
 \* The specification must start with the initial state and transition according
 \* to Next.
-Spec == Init /\ [][Next]_vars
 
-MySpec == MyInit /\ [][MyNext]_vars
+MySpecSwitch == MyInit /\ [][MyNextWithSwitch]_vars
 
 \* -------------------- Invariants --------------------
 
@@ -119,10 +74,19 @@ LogInv ==
     \A i, j \in Server :
         \/ CheckIsPrefix(Committed(i),Committed(j)) 
         \/ CheckIsPrefix(Committed(j),Committed(i))
+        
+        
+UnorderedRequestsReceivedInv ==
+    \E s \in Server : Cardinality(messageStore[s]) <= 2
+    
+MaxCInvTrace == (\E i \in Server : state[i] = Leader) => maxc <= 2
+
+SwitchNextIndexTraceInv ==
+    \A i \in Server : switchNextIndex[i] <= 1
 
 \* Note that LogInv checks for safety violations across space
 \* This is a key safety invariant and should always be checked
-THEOREM Spec => ([]LogInv /\ []LeaderCompletenessInv /\ []LogMatchingInv /\ []MoreThanOneLeaderInv) 
+THEOREM MySpecSwitch => ([]LogInv /\ []LeaderCompletenessInv /\ []LogMatchingInv /\ []MoreThanOneLeaderInv) 
 
 =============================================================================
 \* Created by Ovidiu-Cristian Marcu

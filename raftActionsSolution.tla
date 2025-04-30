@@ -5,144 +5,7 @@ EXTENDS raftInit
 ----
 \* Define state transitions
 
-\* Modified to allow Restarts only for Leaders
-\* Server i restarts from stable storage.
-\* It loses everything but its currentTerm, votedFor, and log.
-\* Also persists messages and instrumentation vars elections, maxc, leaderCount, entryCommitStats
-Restart(i) ==
-    /\ state[i] = Leader \* limit restart to leaders todo mc
-    /\ state'          = [state EXCEPT ![i] = Follower]
-    /\ votesResponded' = [votesResponded EXCEPT ![i] = {}]
-    /\ votesGranted'   = [votesGranted EXCEPT ![i] = {}]
-    /\ voterLog'       = [voterLog EXCEPT ![i] = [j \in {} |-> <<>>]]
-    /\ nextIndex'      = [nextIndex EXCEPT ![i] = [j \in Server |-> 1]]
-    /\ matchIndex'     = [matchIndex EXCEPT ![i] = [j \in Server |-> 0]]
-    /\ commitIndex'    = [commitIndex EXCEPT ![i] = 0]
-    /\ UNCHANGED <<messages, currentTerm, votedFor, log, instrumentationVars>>
-
-\* Modified to restrict Timeout to just Followers
-\* Server i times out and starts a new election. Follower -> Candidate
-Timeout(i) == /\ state[i] \in {Follower} \*, Candidate
-              /\ currentTerm[i] < MaxTerm
-              /\ state' = [state EXCEPT ![i] = Candidate]
-              /\ currentTerm' = [currentTerm EXCEPT ![i] = currentTerm[i] + 1]
-              \* Most implementations would probably just set the local vote
-              \* atomically, but messaging localhost for it is weaker.
-              /\ votedFor' = [votedFor EXCEPT ![i] = Nil]
-              /\ votesResponded' = [votesResponded EXCEPT ![i] = {}]
-              /\ votesGranted'   = [votesGranted EXCEPT ![i] = {}]
-              /\ voterLog'       = [voterLog EXCEPT ![i] = [j \in {} |-> <<>>]]
-              /\ UNCHANGED <<messages, leaderVars, logVars, instrumentationVars>>
-
-\* Modified to restrict Leader transitions, bounded by MaxBecomeLeader
-\* Candidate i transitions to leader. Candidate -> Leader
-BecomeLeader(i) ==
-    /\ state[i] = Candidate
-    /\ votesGranted[i] \in Quorum
-    /\ leaderCount[i] < MaxBecomeLeader
-    /\ state'      = [state EXCEPT ![i] = Leader]
-    /\ nextIndex'  = [nextIndex EXCEPT ![i] =
-                         [j \in Server |-> Len(log[i]) + 1]]
-    /\ matchIndex' = [matchIndex EXCEPT ![i] =
-                         [j \in Server |-> 0]]
-    /\ leaderCount' = [leaderCount EXCEPT ![i] = leaderCount[i] + 1]
-    /\ UNCHANGED <<messages, currentTerm, votedFor, candidateVars, logVars, maxc, entryCommitStats>>
-
-\* Modified up to MaxTerm; Back To Follower
-\* Any RPC with a newer term causes the recipient to advance its term first.
-UpdateTerm(i, j, m) ==
-    /\ m.mterm > currentTerm[i]
-    /\ m.mterm < MaxTerm
-    /\ currentTerm'    = [currentTerm EXCEPT ![i] = m.mterm]
-    /\ state'          = [state       EXCEPT ![i] = Follower]
-    /\ votedFor'       = [votedFor    EXCEPT ![i] = Nil]
-       \* messages is unchanged so m can be processed further.
-    /\ UNCHANGED <<messages, candidateVars, leaderVars, logVars, instrumentationVars>>
-
-\***************************** REQUEST VOTE **********************************************
-\* Message handlers
-\* i = recipient, j = sender, m = message
-
-\* Candidate i sends j a RequestVote request.
-RequestVote(i, j) ==
-    /\ state[i] = Candidate
-    /\ j \notin votesResponded[i]
-    /\ Send([mtype         |-> RequestVoteRequest,
-             mterm         |-> currentTerm[i],
-             mlastLogTerm  |-> LastTerm(log[i]),
-             mlastLogIndex |-> Len(log[i]),
-             msource       |-> i,
-             mdest         |-> j])
-    /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
-
-\* Server i receives a RequestVote request from server j with
-\* m.mterm <= currentTerm[i].
-HandleRequestVoteRequest(i, j, m) ==
-    LET logOk == \/ m.mlastLogTerm > LastTerm(log[i])
-                 \/ /\ m.mlastLogTerm = LastTerm(log[i])
-                    /\ m.mlastLogIndex >= Len(log[i])
-        grant == /\ m.mterm = currentTerm[i]
-                 /\ logOk
-                 /\ votedFor[i] \in {Nil, j}
-    IN /\ m.mterm <= currentTerm[i]
-       /\ \/ grant  /\ votedFor' = [votedFor EXCEPT ![i] = j]
-          \/ ~grant /\ UNCHANGED votedFor
-       /\ Reply([mtype        |-> RequestVoteResponse,
-                 mterm        |-> currentTerm[i],
-                 mvoteGranted |-> grant,
-                 \* mlog is used just for the `elections' history variable for
-                 \* the proof. It would not exist in a real implementation.
-                 mlog         |-> log[i],
-                 msource      |-> i,
-                 mdest        |-> j],
-                 m)
-       /\ UNCHANGED <<state, currentTerm, candidateVars, leaderVars, logVars, instrumentationVars>>
-
-\* Server i receives a RequestVote response from server j with
-\* m.mterm = currentTerm[i].
-HandleRequestVoteResponse(i, j, m) ==
-    \* This tallies votes even when the current state is not Candidate, but
-    \* they won't be looked at, so it doesn't matter.
-    /\ m.mterm = currentTerm[i]
-    /\ votesResponded' = [votesResponded EXCEPT ![i] =
-                              votesResponded[i] \cup {j}]
-    /\ \/ /\ m.mvoteGranted
-          /\ votesGranted' = [votesGranted EXCEPT ![i] =
-                                  votesGranted[i] \cup {j}]
-          /\ voterLog' = [voterLog EXCEPT ![i] =
-                              voterLog[i] @@ (j :> m.mlog)]
-       \/ /\ ~m.mvoteGranted
-          /\ UNCHANGED <<votesGranted, voterLog>>
-    /\ Discard(m)
-    /\ UNCHANGED <<serverVars, votedFor, leaderVars, logVars, instrumentationVars>>
-
-\* Responses with stale terms are ignored.
-DropStaleResponse(i, j, m) ==
-    /\ m.mterm < currentTerm[i]
-    /\ Discard(m)
-    /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
-
 \***************************** AppendEntries **********************************************
-
-\* Modified. Leader i receives a client request to add v to the log. up to MaxClientRequests.
-ClientRequest(i, v) ==
-    /\ state[i] = Leader
-    /\ maxc < MaxClientRequests 
-    /\ LET entryTerm == currentTerm[i]
-           entry == [term |-> entryTerm, value |-> v]
-           entryExists == \E j \in DOMAIN log[i] : log[i][j].value = v /\ log[i][j].term = entryTerm
-           newLog == IF entryExists THEN log[i] ELSE Append(log[i], entry)
-           newEntryIndex == Len(log[i]) + 1
-           newEntryKey == <<newEntryIndex, entryTerm>>
-       IN
-        /\ log' = [log EXCEPT ![i] = newLog]
-        /\ maxc' = IF entryExists THEN maxc ELSE maxc + 1
-        /\ entryCommitStats' =
-              IF ~entryExists /\ newEntryIndex > 0 \* Only add stats for truly new entries
-              THEN entryCommitStats @@ (newEntryKey :> [ sentCount |-> 0, ackCount |-> 0, committed |-> FALSE ])
-              ELSE entryCommitStats
-    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, commitIndex, leaderCount>>
-
 
 ClientRequestSwitch(v, i) ==
     /\ maxc < MaxClientRequests 
@@ -153,8 +16,8 @@ ClientRequestSwitch(v, i) ==
         /\ switchLog' = newLog
         /\ maxc' = IF entryExists THEN maxc ELSE maxc + 1
         
-    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, commitIndex, leaderCount>>
-
+    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, logVars, leaderCount, entryCommitStats, switchNextIndex>>
+    
 \* Modified. Leader i sends j an AppendEntries request containing exactly 1 entry. It was up to 1 entry.
 \* While implementations may want to send more than 1 at a time, this spec uses
 \* just 1 because it minimizes atomic regions without loss of generality.
@@ -329,40 +192,35 @@ AdvanceCommitIndex(i) ==
                    IF key \in keysToUpdate
                    THEN [ entryCommitStats[key] EXCEPT !.committed = TRUE ] \* Update record
                    ELSE entryCommitStats[key] ]                             \* Keep old record       
-    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, log, maxc, leaderCount>>
+    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, log, maxc, leaderCount, switchVars>>
 
 \* Network state transitions
 
-\* The network duplicates a message
-DuplicateMessage(m) ==
-    /\ Send(m)
-    /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
-
-\* The network drops a message
-DropMessage(m) ==
-    /\ Discard(m)
-    /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
-    
 SwitchBroadcast(i) ==
     \* 1. Construct a message record or entry
-    LET entry == switchLog[switchNextIndex[i]]
-    IN
-       /\ Send([
-               mtype   |-> SwitchRequest,
-               mentry  |-> entry,
-               msource |-> Switch,
-               mdest   |-> i
-             ]) \* 3. “Broadcast” to all servers in one atomic step
-             
-       \* 5. Leave all server variables unchanged
-       /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars>>
+    /\ switchNextIndex[i] <= Len(switchLog) 
+    /\ LET entry == switchLog[switchNextIndex[i]]
+       IN
+          /\ Send([
+                  mtype   |-> SwitchRequest,
+                  mentry  |-> entry,
+                  msource |-> Switch,
+                  mdest   |-> i
+                ]) \* 3. “Broadcast” to all servers in one atomic step
+                 
+          /\ UNCHANGED <<serverVars, candidateVars, leaderVars, logVars, instrumentationVars, switchVars>>
        
-HandleSwitchBroadcastFollower(i, m) == 
-    /\ state[i] = Follower \* In case of message received by follower
-    /\ messageStore[i]' = Append(messageStore[i], m.value) \* Add message to temporary message store
-    /\ switchNextIndex[i]' = switchNextIndex[i] + 1
-    /\ UNCHANGED <<candidateVars, leaderVars, logVars, instrumentationVars>>
-
+HandleSwitchBroadcastFollower(i, m) ==
+    /\ state[i] = Follower                   \* only followers handle it
+    /\ messageStore' =
+         [ messageStore EXCEPT ![i] = @ \cup { m.mentry } ]
+    /\ switchNextIndex' =
+         [ switchNextIndex EXCEPT ![i] = @ + 1 ]
+    /\ Discard(m)                            \* remove the processed message
+    /\ UNCHANGED << currentTerm, state, votedFor,
+                    candidateVars, leaderVars, logVars,
+                    instrumentationVars, switchLog >>
+                    
 HandleSwitchBroadcastLeader(i, v) ==
     /\ state[i] = Leader
     /\ LET entryTerm == currentTerm[i]
@@ -378,6 +236,6 @@ HandleSwitchBroadcastLeader(i, v) ==
               IF ~entryExists /\ newEntryIndex > 0 \* Only add stats for truly new entries
               THEN entryCommitStats @@ (newEntryKey :> [ sentCount |-> 0, ackCount |-> 0, committed |-> FALSE ])
               ELSE entryCommitStats
-    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, commitIndex, leaderCount>>
+    /\ UNCHANGED <<messages, serverVars, candidateVars, leaderVars, commitIndex, leaderCount, switchVars>>
 =============================================================================
 \* Created by Ovidiu-Cristian Marcu
